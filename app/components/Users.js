@@ -1,181 +1,193 @@
-"use client"
-import React, { useState, useEffect } from "react";
-import UserCard from "./UserCard";
-import { firestore, app } from "@/lib/firebase";
-import {collection,onSnapshot,query,addDoc,serverTimestamp,where,getDocs} from "firebase/firestore";
-import { getAuth, signOut } from "firebase/auth";
-import { toast } from "react-hot-toast";
+'use client'
+import { useEffect, useState } from "react";
+import { firestore,app } from '@/lib/firebase';
+import { collection, onSnapshot, query, addDoc, serverTimestamp,where,getDocs} from 'firebase/firestore';
+import { getAuth, signOut } from 'firebase/auth';
+import UsersCard from './UsersCard';
 import { useRouter } from "next/navigation";
+import { toast } from 'react-hot-toast';
 
-function Users({ userData }) {
-  const [activeTab, setActiveTab] = useState("users");
+function Users({ userData,setSelectedChatroom }) {
+  const [activeTab, setActiveTab] = useState('chatrooms');
   const [loading, setLoading] = useState(false);
   const [loading2, setLoading2] = useState(false);
   const [users, setUsers] = useState([]);
   const [userChatrooms, setUserChatrooms] = useState([]);
-  const auth = getAuth(app);
   const router = useRouter();
+  const auth = getAuth(app);
+  
 
   const handleTabClick = (tab) => {
     setActiveTab(tab);
   };
 
-  //Tener a todos los usuarios
+  //get all users
   useEffect(() => {
-    console.log('users11', users)
     setLoading2(true);
-    const tastQuery = query(collection(firestore, "users"));
-
-    const unsubscribe = onSnapshot(tastQuery, (querySnapshot) => {
-      console.log('docs', querySnapshot)
-      const users = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    const tasksQuery = query(collection(firestore, 'users'));
+    
+    const unsubscribe = onSnapshot(tasksQuery, (snapshot) => {
+      const users = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setUsers(users);
       setLoading2(false);
     });
-    console.log('users22', users)
-    return unsubscribe;
-
+    return () => unsubscribe();
   }, []);
 
-  const handleLogout = () => {
-    signOut(auth)
-      .then(() => {
-        toast.success("Logout existoso");
-        router.push("/login");
-      })
-      .catch((err) => {
-        toast.error(err.message);
-      });
-  };
+  //get chatrooms
+  useEffect(() => {
+    setLoading(true);
+    if(!userData?.id) return;
+    const chatroomsQuery = query(collection(firestore, 'chatrooms'), where('users', 'array-contains', userData.id));
+    const unsubscribeChatrooms = onSnapshot(chatroomsQuery, (snapshot) => {
+      const chatrooms = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setLoading(false);
+      setUserChatrooms(chatrooms);
+    
+    });
 
-//lanzar salas de chats para usuarios
-useEffect(()=>{
-  setLoading2(true);
-  if(!userData){
-    return;
-  }
-  const chatroomsQuery = query(collection(firestore,'chatrooms'),where(users,'array-contains',userData.id));
+    // Cleanup function for chatrooms
+    return () => unsubscribeChatrooms();
+  }, [userData]);
 
-  const unsubscribe = onSnapshot(chatroomsQuery, (querySnapshot) => {
-    const chatrooms = querSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    setUserChatrooms(chatrooms);
-    setLoading2(false);
-  } )
 
-},[])
+// Create a chatroom
+const createChat = async (user) => {
+  // Check if a chatroom already exists for these users
+  const existingChatroomsQuery = query(collection(firestore, 'chatrooms'), where('users', '==', [userData.id, user.id]));
 
-  const createChat=async(user)=>{
-    //checkear su el chatroom existe para estos usuarios
-    const existingChatroom = query(collection(firestore,'chatrooms'),where('users','==',[user.id,userData.id]));
+  try {
+    const existingChatroomsSnapshot = await getDocs(existingChatroomsQuery);
 
-    try{
-      const existingChatroomSnapshot = await getDocs(existingChatroom);
-
-      if(existingChatroomSnapshot.docs.length > 0){
-        toast.error('Chatroom alredy exists');
-        return;
-      }
-
-      //crear nuevo chatroom, si no hay uno
-      const usersData = {
-        [userData.id]:userData,
-        [user.id]:user,
+    if (existingChatroomsSnapshot.docs.length > 0) {
+      // Chatroom already exists, handle it accordingly (e.g., show a message)
+      console.log('Chatroom already exists for these users.');
+      toast.error('Chatroom already exists for these users.');
+      return;
     }
+
+    // Chatroom doesn't exist, proceed to create a new one
+    const usersData = {
+      [userData.id]: userData,
+      [user.id]: user,
+    };
 
     const chatroomData = {
-      users:[user.id,userData.id],
+      users: [userData.id, user.id],
       usersData,
-      timestamp:serverTimestamp(),
-      lastMessage:null,
-    }
-
-    const chatroomRef= await addDoc(collection(firestore,'chatrooms'),chatroomData);
-    console.log('chatroom creado con id', chatroomRef.id);
-    setActiveTab("chatrooms")
-  }catch(err){
-      toast.error(err.message);
+      timestamp: serverTimestamp(),
+      lastMessage: null,
     };
+
+    const chatroomRef = await addDoc(collection(firestore, 'chatrooms'), chatroomData);
+    console.log('Chatroom created with ID:', chatroomRef.id);
+    setActiveTab("chatrooms");
+  } catch (error) {
+    console.error('Error creating or checking chatroom:', error);
   }
+};
+
+//open chatroom
+const openChat = async (chatroom) => {
+    const data = {
+      id: chatroom.id,
+      myData: userData,
+      otherData: chatroom.usersData[chatroom.users.find((id) => id !== userData.id)],
+    }
+    setSelectedChatroom(data);
+}
+
+const logoutClick = () => {
+  signOut(auth)
+  .then(() => {
+   router.push('/login');
+  })
+  .catch((error) => {
+    console.error('Error logging out:', error);
+  });
+ }
+
 
 
   return (
-    <div className="shadow-lg h-screen overflow-auto mt-20">
-      <div className="flex justify-between p-4">
-        <div className="flex">
-          <button
-            onClick={() => handleTabClick("users")}
-            className={`btn btn-outline ${
-              activeTab === "users" ? "btn-primary" : ""
-            }`}
-          >
-            Users
-          </button>
-          <button
-            onClick={() => handleTabClick("Chatrooms")}
-            className={`btn btn-outline ${
-              activeTab === "Chatrooms" ? "btn-primary" : ""
-            }`}
-          >
-            Chatrooms
-          </button>
-          <button onClick={handleLogout} className={`btn btn-outline `}>
-            Logout
-          </button>
-        </div>
+    <div className='shadow-lg h-screen overflow-auto mt-4 mb-20'>
+      <div className="flex flex-col lg:flex-row justify-between p-4 space-y-4 lg:space-y-0">
+        <button
+          className={`btn btn-outline ${activeTab === 'users' ? 'btn-primary' : ''}`}
+          onClick={() => handleTabClick('users')}
+        >
+          Users
+        </button>
+        <button
+          className={`btn btn-outline ${activeTab === 'chatrooms' ? 'btn-primary' : ''}`}
+          onClick={() => handleTabClick('chatrooms')}
+        >
+          Chatrooms
+        </button>
+        <button
+          className={`btn btn-outline`}
+          onClick={logoutClick}
+        >
+          Logout
+        </button>
       </div>
 
       <div>
-        {activeTab === "Chatrooms" && (
+        {activeTab === 'chatrooms' && (
           <>
-            <h1 className="px-4 text-base font flex-col semi-bold">
-              ChatRooms
-            </h1>
-            <UserCard
-              name="katy Perry"
-              avatarUrl="https://i.pinimg.com/474x/68/ce/4e/68ce4e1e79f005f123b82895343a1785.jpg"
-              latestMessageText="hey, how are you?"
-              time="2hs atras"
-              type={"chat"}
-            />
-            <UserCard
-              name="katy Perry"
-              avatarUrl="https://i.pinimg.com/474x/68/ce/4e/68ce4e1e79f005f123b82895343a1785.jpg"
-              latestMessageText="hey, how are you?"
-              time="2hs atras"
-              type={"chat"}
-            />
-          </>
-        )}
-      </div>
-
-      <div>
-        {activeTab === "users" && (
-          <>
-            <h1 className="mt-4 px-4 text-base font-semibold">Users</h1>
+            <h1 className='px-4 text-base font-semibold'>Chatrooms</h1>
             {
-              loading ? <p>Loading... </p> : users.map((user)=>(user.id !== userData?.id && <div key={user.id} onClick={()=>{createChat(user)}}>
-                    <UserCard
-                      key={user.id}
-                      name={user.name}
-                      avatarUrl={user.avatarUrl}
-                      time="2hs atrás"
-                      type={"users"}
-                    />
-                    </div>
-                  )
+              loading && (
+                <div className="flex justify-center items-center h-full">
+                  <span className="loading loading-spinner text-primary"></span>
+                </div>
               )
+            }
+            {
+              userChatrooms.map((chatroom) => (
+                <div key={chatroom.id} onClick={()=>{openChat(chatroom)}}>
+                <UsersCard
+                  name={chatroom.usersData[chatroom.users.find((id) => id !== userData?.id)].name}
+                  avatarUrl={chatroom.usersData[chatroom.users.find((id) => id !== userData?.id)].avatarUrl}
+                  latestMessage={chatroom.lastMessage}
+                  type={"chat"}
+                />
+
+                </div>
+              ))
+            }
+           </>
+          )}
+
+        {activeTab === 'users' && (
+          <>
+            <h1 className='mt-4 px-4 text-base font-semibold'>Users</h1>
+            {
+              loading2 && (
+                <div className="flex justify-center items-center h-full">
+                  <span className="loading loading-spinner text-primary"></span>
+                </div>
+              )
+            }
+            {
+              users.map((user) => (
+                <div key={user.id} onClick={()=>{createChat(user)}}>
+                 {user.id !== userData?.id &&
+                <UsersCard
+                  name={user.name}
+                  avatarUrl={user.avatarUrl}
+                  latestMessage={""}
+                  type={"user"}
+                />
+                 }
+                </div> 
+              ))
             }
           </>
         )}
       </div>
     </div>
   );
-          }
+}
 
 export default Users;
