@@ -15,7 +15,6 @@ function Page() {
 
   useEffect(() => {
     // Use onAuthStateChanged to listen for changes in authentication state
-    console.log('eñl user',user)
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         const docRef = doc(firestore, 'users', user.uid);
